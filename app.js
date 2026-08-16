@@ -956,7 +956,7 @@
     catSel.value = category;
 
     const evSel = document.getElementById("filterEvent");
-    const eligible = state.events.filter((e) => e.category === category && (e.gender === resultsGender || e.gender === "General"));
+    const eligible = state.events.filter((e) => categoryMatches(e.category, category) && (e.gender === resultsGender || e.gender === "General"));
     evSel.innerHTML = eligible.length
       ? eligible.map((e) => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join("")
       : `<option value="">No programmes</option>`;
@@ -3099,8 +3099,9 @@
         <div class="grid3" style="margin-bottom:.5rem">
           <select id="evCategory" class="input">${state.categories.map((c) => `<option>${c}</option>`).join("")}</select>
           <select id="evType" class="input"><option>Individual</option><option>Group</option></select>
-          <select id="evGender" class="input"><option>General</option><option>Boys</option><option>Girls</option></select>
+          <select id="evGender" class="input"><option>Boys</option><option>Girls</option><option>General</option></select>
         </div>
+        <div class="muted" style="font-size:.68rem;margin:-.15rem 0 .5rem" id="evGenderNote">Choose "General" to open this programme to every category (all Sub Junior/Junior/Senior/etc. students can join).</div>
         <div class="field-label" style="margin-bottom:.25rem">Programme Nature</div>
         <div class="grid2" style="margin-bottom:.75rem">
           <label class="radio-pill"><input type="radio" name="evStageType" value="Stage" checked /> \u{1F3A4} Stage</label>
@@ -3110,15 +3111,27 @@
       </div>
       <div id="eventsListWrap"></div>`;
     renderEventsList();
+    // "General" gender means this programme is open to every age category at
+    // once, so there's no single category to pick \u2014 hide that dropdown
+    // (its value stops mattering; category is stored as "All" on submit).
+    const evCategorySelect = document.getElementById("evCategory");
+    const evGenderSelect = document.getElementById("evGender");
+    const toggleCategoryVisibility = () => {
+      const isGeneral = evGenderSelect.value === "General";
+      evCategorySelect.style.display = isGeneral ? "none" : "";
+    };
+    toggleCategoryVisibility();
+    evGenderSelect.addEventListener("change", toggleCategoryVisibility);
     document.getElementById("btnAddEvent").addEventListener("click", () => {
       const name = document.getElementById("evName").value.trim();
       if (!name) return showToast("Programme name is required");
       const stageTypeInput = document.querySelector('input[name="evStageType"]:checked');
+      const gender = document.getElementById("evGender").value;
       state.events.push({
         id: uid(), name,
-        category: document.getElementById("evCategory").value,
+        category: gender === "General" ? "All" : document.getElementById("evCategory").value,
         type: document.getElementById("evType").value,
-        gender: document.getElementById("evGender").value,
+        gender,
         stageType: stageTypeInput ? stageTypeInput.value : "Stage",
         status: "pending",
         resultStatus: "Pending",
@@ -3135,10 +3148,11 @@
       if (eventEditId === e.id) return `<div class="card">
         <input class="input" data-edit-ev-name value="${escapeAttr(e.name)}" placeholder="Programme Name" style="margin-bottom:.5rem" />
         <div class="grid3" style="margin-bottom:.5rem">
-          <select class="input" data-edit-ev-category>${state.categories.map((c) => `<option ${c === e.category ? "selected" : ""}>${c}</option>`).join("")}</select>
+          <select class="input" data-edit-ev-category style="${e.gender === "General" ? "display:none" : ""}">${state.categories.map((c) => `<option ${c === e.category ? "selected" : ""}>${c}</option>`).join("")}</select>
           <select class="input" data-edit-ev-type><option ${e.type === "Individual" ? "selected" : ""}>Individual</option><option ${e.type === "Group" ? "selected" : ""}>Group</option></select>
-          <select class="input" data-edit-ev-gender>${["General", "Boys", "Girls"].map((g) => `<option ${g === e.gender ? "selected" : ""}>${g}</option>`).join("")}</select>
+          <select class="input" data-edit-ev-gender>${["Boys", "Girls", "General"].map((g) => `<option ${g === e.gender ? "selected" : ""}>${g}</option>`).join("")}</select>
         </div>
+        <div class="muted" style="font-size:.66rem;margin:-.15rem 0 .5rem">"General" opens this programme to every category \u2014 category picker hides.</div>
         <div class="grid2" style="margin-bottom:.75rem">
           <label class="radio-pill"><input type="radio" name="editEvStageType-${e.id}" value="Stage" data-edit-ev-stagetype ${(e.stageType || "Stage") === "Stage" ? "checked" : ""} /> \u{1F3A4} Stage</label>
           <label class="radio-pill"><input type="radio" name="editEvStageType-${e.id}" value="Off-stage" data-edit-ev-stagetype ${e.stageType === "Off-stage" ? "checked" : ""} /> \u270D\uFE0F Off-stage</label>
@@ -3177,15 +3191,20 @@
       eventEditId = null;
       renderEventsList();
     }));
+    document.querySelectorAll("#eventsListWrap [data-edit-ev-gender]").forEach((sel) => sel.addEventListener("change", () => {
+      const catSel = sel.closest(".card").querySelector("[data-edit-ev-category]");
+      if (catSel) catSel.style.display = sel.value === "General" ? "none" : "";
+    }));
     document.querySelectorAll("#eventsListWrap [data-save-event]").forEach((b) => b.addEventListener("click", () => {
       const ev = state.events.find((e) => e.id === b.dataset.saveEvent);
       const name = document.querySelector("[data-edit-ev-name]").value.trim();
       if (!name) return showToast("Programme name is required");
       const stageInput = document.querySelector("[data-edit-ev-stagetype]:checked");
+      const gender = document.querySelector("[data-edit-ev-gender]").value;
       ev.name = name;
-      ev.category = document.querySelector("[data-edit-ev-category]").value;
+      ev.category = gender === "General" ? "All" : document.querySelector("[data-edit-ev-category]").value;
       ev.type = document.querySelector("[data-edit-ev-type]").value;
-      ev.gender = document.querySelector("[data-edit-ev-gender]").value;
+      ev.gender = gender;
       ev.stageType = stageInput ? stageInput.value : (ev.stageType || "Stage");
       eventEditId = null;
       persist(); renderCounters(); renderTicker(); renderFilters(); renderResultsList(); renderEventsList();
@@ -3224,7 +3243,7 @@
 
     function draw() {
       const filtered = state.events.filter((e) =>
-        (!compCategory || e.category === compCategory) &&
+        (!compCategory || categoryMatches(e.category, compCategory)) &&
         (!compSearch || e.name.toLowerCase().includes(compSearch))
       );
       document.getElementById("compListWrap").innerHTML = filtered.length
@@ -3555,8 +3574,16 @@
     renderStudentsTab();
   }
 
+  // A programme registered with Gender = "General" is stored with
+  // category "All" (its own category picker is hidden in the Add Programme
+  // form) so every age category can take part in it \u2014 this treats "All"
+  // as a wildcard match against any specific category filter.
+  function categoryMatches(eventCategory, filterCategory) {
+    return eventCategory === filterCategory || eventCategory === "All";
+  }
+
   function eligibleEventsFor(gender, category) {
-    return state.events.filter((e) => e.category === category && (e.gender === gender || e.gender === "General"));
+    return state.events.filter((e) => categoryMatches(e.category, category) && (e.gender === gender || e.gender === "General"));
   }
 
   function renderStudentsTab() {
@@ -4183,7 +4210,7 @@
         let pickedEventId = "";
 
         function renderPicker() {
-          const available = state.events.filter((e) => !pickCategory || e.category === pickCategory);
+          const available = state.events.filter((e) => !pickCategory || categoryMatches(e.category, pickCategory));
           if (pickedEventId && !available.some((e) => e.id === pickedEventId)) pickedEventId = "";
           pickWrap.innerHTML = `
             <div class="card">
@@ -4249,7 +4276,7 @@
       function showDropdown(q) {
         const query = (q || "").trim().toLowerCase();
         const matches = state.events
-          .filter((e) => !pickCategory || e.category === pickCategory)
+          .filter((e) => !pickCategory || categoryMatches(e.category, pickCategory))
           .filter((e) => !query || (e.name + " " + e.category).toLowerCase().includes(query));
         dropdown.innerHTML = matches.length
           ? matches.map((e) => `<div class="autocomplete-item" data-id="${e.id}" data-name="${escapeAttr(e.name)}">${escapeHtml(e.name)} <span class="muted">(${escapeHtml(e.category)})</span></div>`).join("")
@@ -4418,7 +4445,7 @@
     function catEvents() {
       return state.events
         .map((e, i) => ({ ...e, _idx: i + 1 }))
-        .filter((e) => e.category === prizeCategory);
+        .filter((e) => categoryMatches(e.category, prizeCategory));
     }
 
     function prizeStatusFor(eventId) {
@@ -4654,7 +4681,7 @@
 
     const refreshEventOptions = (selectEl, categoryEl, selectedEventId) => {
       const cat = categoryEl.value;
-      const evs = state.events.filter((e) => e.category === cat);
+      const evs = state.events.filter((e) => categoryMatches(e.category, cat));
       selectEl.innerHTML = evs.length
         ? evs.map((e) => `<option value="${e.id}" ${e.id === selectedEventId ? "selected" : ""}>${escapeHtml(e.name)}</option>`).join("")
         : `<option value="">No programmes in this category</option>`;
